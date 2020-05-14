@@ -1,0 +1,135 @@
+---
+title: "White-Britt-ADA-homework-4"
+author: "BA White"
+date: "5/9/2020"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(patchwork) # for plotting
+library(scales) # for log y axis scale
+library(collapse) # for `fmode()` to find mode
+library(BBmisc) # for %nin%
+library(devtools)
+remotes::install_github("joachim-gassen/tidycovid19")
+library(tidycovid19)
+```
+
+## Take downloaded dataset from covid19 package and tidy data for use
+
+```{r}
+merged <- download_merged_data(cached = TRUE)
+merged <- merged %>%
+  group_by(country, iso3c) %>%
+  arrange(country, iso3c, date) %>%
+  mutate(
+    daily_confirmed = confirmed - lag(confirmed, n = 1),
+    daily_deaths = deaths - lag(deaths, n = 1),
+    daily_recovered = recovered - lag(recovered, n = 1)
+  ) %>%
+  mutate(
+    daily_confirmed = replace_na(daily_confirmed, 0),
+    daily_deaths = replace_na(daily_deaths, 0),
+    daily_recovered = replace_na(daily_recovered, 0)
+  ) %>%
+  ungroup() %>%
+  arrange(country, iso3c, date)
+
+add_world1 <- merged %>%
+  group_by(date) %>%
+  arrange(date) %>%
+  summarize(
+    country = "World", iso3c = NA, confirmed = sum(confirmed),
+    deaths = sum(deaths), recovered = sum(recovered),
+    timestamp = fmode(timestamp)
+  ) %>%
+  mutate(
+    daily_confirmed = confirmed - lag(confirmed, n = 1),
+    daily_deaths = deaths - lag(deaths, n = 1),
+    daily_recovered = recovered - lag(recovered, n = 1)
+  ) %>%
+  mutate(
+    daily_confirmed = replace_na(daily_confirmed, 0),
+    daily_deaths = replace_na(daily_deaths, 0),
+    daily_recovered = replace_na(daily_recovered, 0)
+  ) %>%
+  ungroup() %>%
+  arrange(country, iso3c, date)
+
+add_world2 <- merged %>%
+  group_by(country, iso3c) %>%
+  summarize(
+    population = fmode(population),
+    land_area_skm = fmode(land_area_skm),
+    timestamp = fmode(timestamp)
+  ) %>%
+  ungroup() %>%
+  summarize(
+    country = "World", iso3c = NA,
+    population = sum(population, na.rm = TRUE),
+    land_area_skm = sum(land_area_skm, na.rm = TRUE)
+  ) %>%
+  mutate(pop_density = population / land_area_skm)
+
+add_world <- left_join(add_world1, add_world2, by = c("country", "iso3c"))
+merged <- bind_rows(merged, add_world)
+
+cv_data <- pivot_longer(merged,
+  cols = c(
+    "confirmed", "deaths", "recovered",
+    "daily_confirmed", "daily_deaths", "daily_recovered"
+  ),
+  names_to = "variable", values_to = "cases"
+) %>%
+  arrange(country, variable, date) %>%
+  rename(area = land_area_skm, density = pop_density) %>%
+  mutate(rate = cases / population * 10^6)
+```
+
+## Challenge 1
+# Use the dataset and function generated above to plot global data on confirmed coronavirus infections, deaths, and recoveries.
+
+```{r}
+infections <-ggplot(merged, aes(date, daily_confirmed)) +
+  geom_point()
+infections
+
+death <-ggplot(merged, aes(date, daily_deaths)) +
+  geom_point()
+death
+
+recoveries <-ggplot(merged, aes(date, daily_recovered)) +
+  geom_point()
+recoveries
+```
+
+## Challenge 2
+# Use the dataset and function generated above to plot data on confirmed coronavirus infections, deaths, and recoveries for the “Group of Seven” (G7) countries, which are the largest IMF-advanced economies in the world (i.e., the US, United Kingdom, Canada, France, Germany, Italy, and Japan) plus China, Russia, and Iran. Facet your plots first by “country” and then by “variable”.
+
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+## Challenge 3
+# Use the dataset and function generated above to return summary data for ALL countries in the dataset, and then filter this returned dataset to only those countries with populations of over 1 million, storing this dataset as a tibble d. How many countries does this tibble include?
+
+## Challenge 4
+# Filter d to generate two additional tibbles, overall and daily that include only data on the variables “confirmed” and “daily_confirmed” cases, respectively. Depending on the dataset, the case and rate variables either reflect the overall (i.e., across the pandemic) or maximum daily number of cases and number of cases recorded per million people in the population. Which 10 countries have experienced the highest over rate of confirmed cases? Which 10 countries have experienced the highest single-day rate of confirmed cases?
+
+## Challenge 5
+# Run a linear model to evaluate how the overall infection rate (rate) is related to the variables population density (density), population size (population), gross domestic product per capita (gdp_capita), and overall income level (income). In doing so, you should run exploratory visualizations to see whether or not the four numeric variables should be transformed.
+
+# Based on the full model, what predictors variables have slopes significantly different from zero?
+
+## Challenge 6
+# Run stepwise selection using AIC to evaluate whether the full model or a nested, simpler model is preferred. What is the best model (based on AIC) of the possible ones involving these 4 predictors? What are the “pseudo- R2” values associated with the full and “best” models? 
+
+# Repeat this modeling process to evaluate what combination of explanatory variables best maximum daily infection rate. Are the important predictors the same? What additional or different variables are included?
+
+## Challenge 7
+# To the best model you determined in CHALLENGE 6 for predicting the maximum daily infection rate, add in the maximum social distancing (max_sd) and maximum movement restriction (max_mr) score per country. Do either of these additional variable improve the model significantly?
+
+## Challenge 8
+# Finally, let’s go back to the original cv_data tibble… we will now run a set of “mixed effects” model! First, filter the tibble to include only data for countries with a population of > 1 million and to include only those rows of data for daily_confirmed cases (i.e., variable == “daily_confirmed”). Also filter the dataset to only include rows where rate > 0 (i.e., where there was at least 1 new recorded cases on a day). Then, run a set of linear mixed effects models that include the fixed and random effects indicated in the table below. Start with the full model (4 fixed effects and 2 random effects) as m1 and then run nested models with different subsets of fixed predictors, but always keeping country and date as random effects. Use the lmer() function from the {lme4} package with the argument REML=FALSE specified, as discussed in Module 24. Then, construct an AIC table for the full set of models that you run, and be sure to run a null model with ONLY random effects. What is the best model of the complete set that you ran? What is the “pseudo- R2” value associated with that model?
